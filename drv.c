@@ -250,7 +250,7 @@ static void drv_bo_mapping_destroy(struct bo *bo)
 		while (idx < drv_array_size(drv->mappings)) {
 			struct mapping *mapping =
 			    (struct mapping *)drv_array_at_idx(drv->mappings, idx);
-			if (mapping->vma->handle != bo->handles[plane].u32) {
+			if (mapping->vma->inode != bo->inodes[plane]) {
 				idx++;
 				continue;
 			}
@@ -284,11 +284,16 @@ static void drv_bo_acquire(struct bo *bo)
 	pthread_mutex_lock(&drv->buffer_table_lock);
 	for (size_t plane = 0; plane < bo->meta.num_planes; plane++) {
 		uintptr_t num = 0;
+		if (!bo->inodes[plane]) {
+			int fd = drv_bo_get_plane_fd(bo, plane);
+			bo->inodes[plane] = drv_get_inode(fd);
+			close(fd);
+		}
 
-		if (!drmHashLookup(drv->buffer_table, bo->handles[plane].u32, (void **)&num))
-			drmHashDelete(drv->buffer_table, bo->handles[plane].u32);
+		if (!drmHashLookup(drv->buffer_table, bo->inodes[plane], (void **)&num))
+			drmHashDelete(drv->buffer_table, bo->inodes[plane]);
 
-		drmHashInsert(drv->buffer_table, bo->handles[plane].u32, (void *)(num + 1));
+		drmHashInsert(drv->buffer_table, bo->inodes[plane], (void *)(num + 1));
 	}
 	pthread_mutex_unlock(&drv->buffer_table_lock);
 }
@@ -307,11 +312,11 @@ static bool drv_bo_release(struct bo *bo)
 
 	pthread_mutex_lock(&drv->buffer_table_lock);
 	for (size_t plane = 0; plane < bo->meta.num_planes; plane++) {
-		if (!drmHashLookup(drv->buffer_table, bo->handles[plane].u32, (void **)&num)) {
-			drmHashDelete(drv->buffer_table, bo->handles[plane].u32);
+		if (!drmHashLookup(drv->buffer_table, bo->inodes[plane], (void **)&num)) {
+			drmHashDelete(drv->buffer_table, bo->inodes[plane]);
 
 			if (num > 1) {
-				drmHashInsert(drv->buffer_table, bo->handles[plane].u32,
+				drmHashInsert(drv->buffer_table, bo->inodes[plane],
 					      (void *)(num - 1));
 			}
 		}
@@ -319,7 +324,7 @@ static bool drv_bo_release(struct bo *bo)
 
 	/* The same buffer can back multiple planes with different offsets. */
 	for (size_t plane = 0; plane < bo->meta.num_planes; plane++) {
-		if (!drmHashLookup(drv->buffer_table, bo->handles[plane].u32, (void **)&num)) {
+		if (!drmHashLookup(drv->buffer_table, bo->inodes[plane], (void **)&num)) {
 			/* num is positive if found in the hashmap. */
 			pthread_mutex_unlock(&drv->buffer_table_lock);
 			return false;
@@ -431,6 +436,9 @@ struct bo *drv_bo_import(struct driver *drv, struct drv_import_fd_data *data)
 		return NULL;
 	}
 
+	for (plane = 0; plane < bo->meta.num_planes; plane++)
+		bo->inodes[plane] = drv_get_inode(data->fds[plane]);
+
 	drv_bo_acquire(bo);
 
 	bo->meta.format_modifier = data->format_modifier;
@@ -491,8 +499,7 @@ void *drv_bo_map(struct bo *bo, const struct rectangle *rect, uint32_t map_flags
 
 	for (i = 0; i < drv_array_size(drv->mappings); i++) {
 		struct mapping *prior = (struct mapping *)drv_array_at_idx(drv->mappings, i);
-		if (prior->vma->handle != bo->handles[plane].u32 ||
-		    prior->vma->map_flags != map_flags)
+		if (prior->vma->inode != bo->inodes[plane] || prior->vma->map_flags != map_flags)
 			continue;
 
 		if (rect->x != prior->rect.x || rect->y != prior->rect.y ||
@@ -506,8 +513,7 @@ void *drv_bo_map(struct bo *bo, const struct rectangle *rect, uint32_t map_flags
 
 	for (i = 0; i < drv_array_size(drv->mappings); i++) {
 		struct mapping *prior = (struct mapping *)drv_array_at_idx(drv->mappings, i);
-		if (prior->vma->handle != bo->handles[plane].u32 ||
-		    prior->vma->map_flags != map_flags)
+		if (prior->vma->inode != bo->inodes[plane] || prior->vma->map_flags != map_flags)
 			continue;
 
 		prior->vma->refcount++;
@@ -533,7 +539,8 @@ void *drv_bo_map(struct bo *bo, const struct rectangle *rect, uint32_t map_flags
 
 	mapping.vma->refcount = 1;
 	mapping.vma->addr = addr;
-	mapping.vma->handle = bo->handles[plane].u32;
+	mapping.vma->plane = plane;
+	mapping.vma->inode = bo->inodes[plane];
 	mapping.vma->map_flags = map_flags;
 
 success:
@@ -737,7 +744,7 @@ uint32_t drv_num_buffers_per_bo(struct bo *bo)
 
 	for (plane = 0; plane < bo->meta.num_planes; plane++) {
 		for (p = 0; p < plane; p++)
-			if (bo->handles[p].u32 == bo->handles[plane].u32)
+			if (bo->inodes[p] == bo->inodes[plane])
 				break;
 		if (p == plane)
 			count++;
