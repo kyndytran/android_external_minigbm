@@ -443,13 +443,14 @@ int gbm_mesa_bo_create2(struct bo *bo, uint32_t width, uint32_t height, uint32_t
 	char format_str[5] = { 0 };
 	memcpy(format_str, &format, 4);
 
-	drv_logv("Allocate buffer: %s %dx%d, stride %d, total_size: %llu, use: %s", format_str,
+	drv_logv("Allocate buffer: %s %dx%d, stride %d, total_size: %zu, use: %s", format_str,
 		 width, height, alloc_args.out_stride, bo->meta.total_size, use_str);
 
 	auto priv = new GbmMesaBoPriv();
-	bo->inode = drv_get_inode(alloc_args.out_fd);
+	uint32_t inode = drv_get_inode(alloc_args.out_fd);
 	for (size_t plane = 0; plane < bo->meta.num_planes; plane++) {
 		priv->fds[plane] = UniqueFd(alloc_args.out_fd);
+		bo->inodes[plane] = inode;
 	}
 
 	priv->map_stride = alloc_args.out_map_stride;

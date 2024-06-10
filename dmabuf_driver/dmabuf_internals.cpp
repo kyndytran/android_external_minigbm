@@ -237,10 +237,10 @@ int dmabuf_bo_create(struct bo *bo, uint32_t width, uint32_t height, uint32_t fo
 		drv_loge("DMA_BUF_SET_NAME failed");
 
 	auto priv = new DmabufBoPriv();
-	bo->inode = drv_get_inode(buf_fd.Get());
+	uint32_t inode = drv_get_inode(buf_fd.Get());
 	for (size_t plane = 0; plane < bo->meta.num_planes; plane++) {
 		priv->fds[plane] = UniqueFd(dup(buf_fd.Get()));
-
+		bo->inodes[plane] = inode;
 	}
 
 	bo->priv = priv;
