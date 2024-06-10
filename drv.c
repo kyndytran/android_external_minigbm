@@ -24,15 +24,12 @@
 #include "drv_priv.h"
 #include "util.h"
 
-#ifdef DRV_EXTERNAL
-extern struct backend *init_external_backend();
-
-static const struct backend *drv_get_backend(int fd)
-{
-	return init_external_backend();
-}
-#else
-
+#ifdef DRV_DMABUF_HEAP
+extern const struct backend backend_dmabuf_heap;
+#endif
+#ifdef DRV_GBM_MESA
+extern const struct backend backend_gbm_mesa;
+#endif
 #ifdef DRV_AMDGPU
 extern const struct backend backend_amdgpu;
 #endif
@@ -115,7 +112,6 @@ static const struct backend *drv_get_backend(int fd)
 	drmFreeVersion(drm_version);
 	return NULL;
 }
-#endif
 
 struct driver *drv_create(int fd)
 {
@@ -131,8 +127,20 @@ struct driver *drv_create(int fd)
 	minigbm_debug = getenv("MINIGBM_DEBUG");
 	drv->compression = (minigbm_debug == NULL) || (strcmp(minigbm_debug, "nocompression") != 0);
 
-	drv->fd = fd;
-	drv->backend = drv_get_backend(fd);
+#ifdef DRV_GBM_MESA
+	if (fd == DRV_GBM_MESA_DRIVER) {
+		drv->backend = &backend_gbm_mesa;
+	} else
+#endif
+#ifdef DRV_DMABUF_HEAP
+	    if (fd == DRV_DMAHEAPS_DRIVER) {
+		drv->backend = &backend_dmabuf_heap;
+	} else
+#endif
+	{
+		drv->fd = fd;
+		drv->backend = drv_get_backend(fd);
+	}
 
 	if (!drv->backend)
 		goto free_driver;
