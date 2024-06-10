@@ -371,7 +371,7 @@ int gbm_mesa_bo_create(struct bo *bo, uint32_t width, uint32_t height, uint32_t 
 
 	if (alloc_args.drm_format == 0) {
 		/* Always use linear for spoofed format allocations. */
-		drv_bo_from_format(bo, alloc_args.width, alloc_args.height, format);
+		drv_bo_from_format(bo, alloc_args.width, 1, alloc_args.height, format);
 		bo_layout_ready = true;
 		bo->meta.total_size = ALIGN(bo->meta.total_size, size_align);
 		alloc_args.drm_format = DRM_FORMAT_R8;
@@ -407,7 +407,7 @@ int gbm_mesa_bo_create(struct bo *bo, uint32_t width, uint32_t height, uint32_t 
 	}
 
 	if (!bo_layout_ready)
-		drv_bo_from_format(bo, alloc_args.out_stride, alloc_args.height, format);
+		drv_bo_from_format(bo, alloc_args.out_stride, 1, alloc_args.height, format);
 
 	drv_logv("Allocated: %dx%d, stride: %d, map_stride: %d", width, height,
 		 alloc_args.out_stride, alloc_args.out_map_stride);
@@ -477,7 +477,7 @@ int gbm_mesa_bo_get_plane_fd(struct bo *bo, size_t plane)
 	return dup(((GbmMesaBoPriv *)bo->priv)->fds[plane].Get());
 }
 
-void *gbm_mesa_bo_map(struct bo *bo, struct vma *vma, size_t plane, uint32_t map_flags)
+void *gbm_mesa_bo_map(struct bo *bo, struct vma *vma, uint32_t map_flags)
 {
 	auto drv = gbm_mesa_get_or_init_driver(bo->drv, true);
 	auto wr = drv->wrapper;
